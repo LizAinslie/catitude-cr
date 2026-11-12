@@ -1,0 +1,13 @@
+[package]
+name = "crlib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Extensible PC/SC smart-card reader framework with safe built-in parsers"
+repository.workspace = true
+
+[dependencies]
+pcsc = { workspace = true }
+
+[dev-dependencies]
+# kept empty on purpose; tests use a scripted Transport.

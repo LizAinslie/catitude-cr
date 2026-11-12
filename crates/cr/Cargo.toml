@@ -1,0 +1,14 @@
+[package]
+name = "cr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI inspector for crlib: list readers, wait for a card, print safe fields"
+repository.workspace = true
+
+[[bin]]
+name = "cr"
+path = "src/main.rs"
+
+[dependencies]
+crlib = { workspace = true }

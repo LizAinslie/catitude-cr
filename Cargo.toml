@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/crlib", "crates/cr"]
+default-members = ["crates/crlib", "crates/cr"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/LizAinslie/catitude-cr"
+description = "Extensible PC/SC smart-card reader framework (crlib) + cr CLI"
+
+[workspace.dependencies]
+crlib = { path = "crates/crlib" }
+pcsc = "2.3"
