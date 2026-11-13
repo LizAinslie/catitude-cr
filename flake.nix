@@ -1,5 +1,5 @@
 {
-  description = "catitude-cr: extensible PC/SC smart-card reader (crlib) + cr CLI";
+  description = "catitude-cr: extensible PC/SC smart-card reader (crlib) + cr CLI + crgui";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -35,8 +35,7 @@
         let pkgs = pkgsFor system; in {
           default = pkgs.mkShell {
             # pcscd must be running on the host; pcsclite here is the build+link lib.
-            # The extra libraries are for a local `cargo build -p cr-gui` only.
-            # `nix build` does not compile the GUI.
+            # Vulkan/Wayland/X11 libs for local `cargo build -p cr-gui` (also used by nix build).
             nativeBuildInputs = [ pkgs.pkg-config pkgs.rust-bin.stable.latest.default ];
             buildInputs = with pkgs; [
               pcsclite
@@ -51,8 +50,8 @@
               openssl
             ];
             shellHook = ''
-              echo "catitude-cr dev shell — cargo build, then ./target/debug/cr --wait"
-              echo "GUI (not packaged): cargo build -p cr-gui && ./target/debug/crgui"
+              echo "catitude-cr dev shell — cargo build -p cr / -p cr-gui"
+              echo "  ./target/debug/cr --wait   |   ./target/debug/crgui"
             '';
           };
         });
