@@ -140,10 +140,16 @@ fn watch(opts: &Opts) -> Result<()> {
     let ctx = PcscContext::establish()?;
     let mut watch = ctx.card_watch();
     let mut filled = false;
+    let mut mute_reported: Option<String> = None;
     loop {
-        let snapshot = ctx.poll_cards(&mut watch, opts.reader.as_deref(), Duration::from_millis(400))?;
+        let snapshot = ctx.poll_cards_detailed(
+            &mut watch,
+            opts.reader.as_deref(),
+            Duration::from_millis(400),
+        )?;
         match snapshot.present {
             Some(name) if !filled => {
+                mute_reported = None;
                 eprintln!("card inserted in {name}");
                 match read_credential_at(&ctx, &name) {
                     Ok(Some(cred)) => {
@@ -154,18 +160,39 @@ fn watch(opts: &Opts) -> Result<()> {
                     Err(err) => eprintln!("read failed: {err}"),
                 }
             }
+            Some(_) => {
+                mute_reported = None;
+            }
             None => {
-                if filled {
-                    filled = false;
+                filled = false;
+                let mute = snapshot
+                    .statuses
+                    .iter()
+                    .find(|status| status.flags.present && status.flags.mute);
+                match mute {
+                    Some(status) if mute_reported.as_deref() != Some(&status.reader) => {
+                        eprintln!(
+                            "card in {} is present but MUTE: it is not answering ISO 7816 \
+                             (T=0/T=1), so it cannot be read. Typical causes: a synchronous \
+                             memory card (SLE 4442/4428), a contactless-only card on a contact \
+                             reader, or dirty contacts.",
+                            status.reader
+                        );
+                        mute_reported = Some(status.reader.clone());
+                    }
+                    Some(_) => {}
+                    None => mute_reported = None,
                 }
             }
-            _ => {}
         }
     }
 }
 
 fn read_once(reader: Option<&str>) -> Result<(Credential, String)> {
     let ctx = PcscContext::establish()?;
+    if let Some(name) = mute_reader(&ctx, reader)? {
+        return Err(mute_message(&name).into());
+    }
     let mut card = ctx.connect(reader)?;
     let reader = card.reader_name().to_string();
     let cred = read_credential(&mut card)?
@@ -179,6 +206,31 @@ fn read_credential_at(
 ) -> crlib::Result<Option<Credential>> {
     let mut card = ctx.connect(Some(reader))?;
     read_credential(&mut card)
+}
+
+fn mute_reader(
+    ctx: &PcscContext,
+    reader: Option<&str>,
+) -> crlib::Result<Option<String>> {
+    let mut watch = ctx.card_watch();
+    let snapshot = ctx.poll_cards_detailed(
+        &mut watch,
+        reader,
+        Duration::from_millis(50),
+    )?;
+    Ok(snapshot
+        .statuses
+        .iter()
+        .find(|status| status.flags.present && status.flags.mute)
+        .map(|status| status.reader.clone()))
+}
+
+fn mute_message(reader: &str) -> String {
+    format!(
+        "card in {reader} is present but MUTE: it is not answering ISO 7816 (T=0/T=1), \
+         so it cannot be read. Typical causes: a synchronous memory card (SLE 4442/4428), \
+         a contactless-only card on a contact reader, or dirty contacts."
+    )
 }
 
 fn type_field(

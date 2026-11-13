@@ -16,7 +16,7 @@ impl Field {
     }
 }
 
-/// One line of a (possibly redacted) structural dump.
+/// One line of a structural dump.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DumpLine {
     pub label: String,
@@ -35,8 +35,10 @@ impl DumpLine {
 /// Structured result of a single [`crate::CardApp`] read.
 ///
 /// Fields are the high-level facts the app wants to surface. `raw` is a
-/// structural dump (ATR bytes, file IDs, redacted TLV). Built-in apps never
-/// put a full payment-card PAN, a cardholder name, or a CVV in either place.
+/// structural dump (ATR bytes, file IDs, TLV). The EMV dump is unredacted and
+/// can contain the full PAN, track data, and cardholder name; the `pan`
+/// field itself stays masked. No app can surface a CVV because it is not on
+/// the chip.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CardInfo {
     /// Short name of the app that produced this result (`"emv"`, `"desfire"`, …).

@@ -1,5 +1,6 @@
 //! Plain-text rendering of a card read. This is what Copy all puts on the
-//! clipboard. It is the same fields the CLI prints; nothing is unmasked here.
+//! clipboard. It is the same fields the CLI prints, including the unredacted
+//! structural dump.
 
 use crlib::CardInfo;
 
@@ -26,18 +27,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn plaintext_lists_safe_fields_and_redacted_dump() {
+    fn plaintext_lists_fields_and_unredacted_dump() {
         let mut info = CardInfo::new("emv");
         info.push("scheme", "Visa");
         info.push("pan", "************4242");
-        info.push_raw("5A", "[redacted]");
+        info.push_raw("5A", "42 42 42 42 42 42 42 42");
 
         let text = plaintext(&[info]);
 
         assert!(text.contains("== emv =="));
         assert!(text.contains("scheme                 Visa"));
         assert!(text.contains("************4242"));
-        assert!(text.contains("[redacted]"));
-        assert!(!text.contains("4242424242424242"));
+        assert!(text.contains("42 42 42 42 42 42 42 42"));
     }
 }

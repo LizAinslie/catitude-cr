@@ -3,7 +3,7 @@ name = "cr"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "CLI inspector for crlib: list readers, wait for a card, print safe fields"
+description = "CLI inspector for crlib: list readers, wait for a card, print card fields"
 repository.workspace = true
 
 [[bin]]

@@ -25,10 +25,10 @@ const KNOWN_AIDS: &[&[u8]] = &[
     &[0xA0, 0x00, 0x00, 0x00, 0x42, 0x10, 0x10], // CB (Cartes Bancaires)
 ];
 
-/// Tags that must never appear (even in hex) in a field or a dump line.
-const REDACTED_TAGS: &[&[u8]] = &[
-  // allow everything :D
-];
+/// Tags filtered from the structural dump. Empty on purpose: the wallet and
+/// export builds need the full PAN, track data, and cardholder name. Add
+/// tags here if a downstream build wants a filtered dump instead.
+const REDACTED_TAGS: &[&[u8]] = &[];
 
 pub struct EmvApp;
 
@@ -108,7 +108,8 @@ fn read_application(card: &mut dyn Transport, aid: &[u8]) -> Result<CardInfo> {
 
     let records = collect_records(card, &fci);
 
-    // Safe field extraction happens here and only here.
+    // The high-level `pan` field stays masked. The structural dump above and
+    // the records below are deliberately unredacted.
     if let Some(masked) = records.iter().find_map(|t| {
         t.find(&[0x5A])
             .and_then(|pan| mask_pan_from_bcd(&pan.value))
@@ -141,7 +142,7 @@ fn read_application(card: &mut dyn Transport, aid: &[u8]) -> Result<CardInfo> {
         dump_redacted(&mut info, format!("record[{i}]"), std::slice::from_ref(rec));
     }
 
-    // A card that selected an AID but produced no safe fields at all is still
+    // A card that selected an AID but produced no high-level fields is still
     // an EMV card — the scheme/AID themselves are useful.
     Ok(info)
 }

@@ -3,15 +3,20 @@
 //! `crlib` talks to a card through a [`Transport`], parses APDUs and
 //! BER-TLV, and runs a registry of [`CardApp`] implementations. Built-in
 //! apps identify the ATR, dump DESFire / Calypso / ISO 7816 *structure*,
-//! and read a small, deliberately limited set of EMV fields (scheme, masked
-//! PAN, expiry, application label).
+//! and read EMV credentials (scheme, masked PAN, expiry, application label,
+//! cardholder).
+//!
+//! The EMV structural dump is intentionally **unredacted**: it includes the
+//! full PAN, Track 1 / Track 2 equivalent data, and the cardholder name.
+//! This is what local wallet and export tools consume. The high-level `pan`
+//! field stays masked for inspector views; use the raw dump or
+//! `cr-autofill` when you need the full value.
+//!
+//! A CVV / CVC is not present on the chip. Any save-and-replay flow must ask
+//! the user for it separately.
 //!
 //! The framework is meant to be extended: implement [`CardApp`] for a
 //! transit system or a PIV badge, then [`Registry::register`] it.
-//!
-//! Built-in parsers never return a full payment-card PAN, a cardholder name
-//! taken from track data, or a CVV. See `apps::emv` for the policy and the
-//! extension point.
 
 pub mod apdu;
 pub mod apps;

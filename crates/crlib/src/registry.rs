@@ -23,13 +23,11 @@ pub trait CardApp {
 
     /// Extension point for downstream crates.
     ///
-    /// Built-in apps do not put a full payment-card PAN, a cardholder name
-    /// taken from track data, or a CVV into [`CardInfo`]. If you are writing
-    /// your own `CardApp` and you have a lawful need to surface additional
-    /// fields, override this hook (or just do the work inside `try_read`).
-    ///
-    /// crlib itself does not implement PAN / name / CVV extraction, and
-    /// this default body is a no-op.
+    /// Built-in apps already surface full card data: the EMV app keeps the
+    /// `pan` field masked but writes an unredacted structural dump, and
+    /// `cr-autofill` returns the full credential. Override this hook to add
+    /// more fields after `try_read`; the default body is a no-op. A CVV
+    /// cannot be read from the chip and must come from the user.
     fn enrich(&self, card: &mut dyn Transport, info: &mut CardInfo) -> Result<()> {
         let _ = (card, info);
         Ok(())
@@ -59,8 +57,8 @@ impl Registry {
         Self { apps: Vec::new() }
     }
 
-    /// ATR identifier, EMV (safe fields only), DESFire, Calypso, and a
-    /// generic ISO 7816 structure dumper.
+    /// ATR identifier, EMV, DESFire, Calypso, and a generic ISO 7816
+    /// structure dumper.
     pub fn standard() -> Self {
         let mut r = Self::new();
         r.register(crate::apps::AtrApp)

@@ -3,7 +3,7 @@ name = "crlib"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Extensible PC/SC smart-card reader framework with safe built-in parsers"
+description = "Extensible PC/SC smart-card reader framework with built-in parsers"
 repository.workspace = true
 
 [dependencies]

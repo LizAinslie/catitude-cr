@@ -32,23 +32,35 @@
         });
 
       devShells = forAll (system:
-        let pkgs = pkgsFor system; in {
+        let
+          pkgs = pkgsFor system;
+          # gpui-ce dlopen()s these at runtime. `nix develop` only exports
+          # build-time NIX_LDFLAGS, so put the runtime library dirs on
+          # LD_LIBRARY_PATH or `./target/debug/crgui` panics looking for
+          # libwayland-client.
+          guiRuntimeLibs = with pkgs; [
+            vulkan-loader
+            wayland
+            libxkbcommon
+            libGL
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXi
+            xorg.libXrandr
+            xorg.libxcb
+            fontconfig
+            freetype
+          ];
+        in {
           default = pkgs.mkShell {
             # pcscd must be running on the host; pcsclite here is the build+link lib.
             # Vulkan/Wayland/X11 libs for local `cargo build -p cr-gui` (also used by nix build).
             nativeBuildInputs = [ pkgs.pkg-config pkgs.rust-bin.stable.latest.default ];
-            buildInputs = with pkgs; [
-              pcsclite
-              vulkan-loader
-              libxkbcommon
-              wayland
-              xorg.libX11
-              xorg.libXcursor
-              xorg.libXi
-              xorg.libXrandr
-              fontconfig
-              openssl
-            ];
+            buildInputs = [
+              pkgs.pcsclite
+              pkgs.openssl
+            ] ++ guiRuntimeLibs;
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (guiRuntimeLibs ++ [ pkgs.pcsclite ]);
             shellHook = ''
               echo "catitude-cr dev shell — cargo build -p cr / -p cr-gui"
               echo "  ./target/debug/cr --wait   |   ./target/debug/crgui"
