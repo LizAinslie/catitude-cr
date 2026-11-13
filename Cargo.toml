@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/crlib", "crates/cr", "crates/cr-gui"]
-default-members = ["crates/crlib", "crates/cr", "crates/cr-gui"]
+members = ["crates/crlib", "crates/cr", "crates/cr-gui", "crates/cr-autofill"]
+default-members = ["crates/crlib", "crates/cr", "crates/cr-gui", "crates/cr-autofill"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,4 +12,5 @@ description = "Extensible PC/SC smart-card reader framework (crlib) + cr CLI"
 
 [workspace.dependencies]
 crlib = { path = "crates/crlib" }
+cr-autofill = { path = "crates/cr-autofill" }
 pcsc = "2.3"

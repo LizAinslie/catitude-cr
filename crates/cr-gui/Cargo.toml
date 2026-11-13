@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 crlib = { workspace = true }
+cr-autofill = { workspace = true }
 # gpui-ce plus the styled component kit (select, list, button, tag).
 # Pinned so the GUI does not follow a Zed git revision.
 gpui_ce_kit = "0.3.0"

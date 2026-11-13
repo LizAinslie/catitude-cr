@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::thread;
 use std::time::Duration;
 
-use crlib::{CardWatch, PcscContext, Registry};
+use crlib::{CardWatch, PcscContext, ReaderSnapshot, Registry};
 
 use crate::model::{CardRead, Event};
 
@@ -45,6 +45,7 @@ fn run(cmd_rx: Receiver<Cmd>, tx: smol::channel::Sender<Event>) {
     // Reader we already parsed for the current insertion. Cleared on removal,
     // reader change, or an explicit rescan.
     let mut held: Option<String> = None;
+    let mut last_flags: Option<ReaderSnapshot> = None;
 
     loop {
         match drain(
@@ -59,7 +60,7 @@ fn run(cmd_rx: Receiver<Cmd>, tx: smol::channel::Sender<Event>) {
             Drain::Continue => {}
         }
 
-        let snapshot = match ctx.poll_cards(&mut watch, wanted.as_deref(), POLL) {
+        let snapshot = match ctx.poll_cards_detailed(&mut watch, wanted.as_deref(), POLL) {
             Ok(snapshot) => snapshot,
             Err(err) => {
                 if tx.send_blocking(Event::ReadError(explain(err))).is_err() {
@@ -102,25 +103,55 @@ fn run(cmd_rx: Receiver<Cmd>, tx: smol::channel::Sender<Event>) {
             }
         }
 
-        match snapshot.present {
+        let chosen_status = wanted
+            .as_deref()
+            .and_then(|name| snapshot.statuses.iter().find(|s| s.reader == name))
+            .or_else(|| snapshot.statuses.iter().find(|s| s.flags.present))
+            .or_else(|| snapshot.statuses.first())
+            .cloned();
+        if chosen_status != last_flags {
+            last_flags = chosen_status.clone();
+            if !emit(&tx, Event::ReaderState(chosen_status)) {
+                return;
+            }
+        }
+
+        let raw_present = snapshot
+            .statuses
+            .iter()
+            .find(|status| status.flags.present)
+            .map(|status| status.reader.clone());
+
+        match raw_present {
             Some(name) if held.as_ref() != Some(&name) => {
                 if !emit(&tx, Event::CardInserted(name.clone())) {
                     return;
                 }
-                match read_card(&ctx, &name) {
-                    Ok(read) => {
-                        held = Some(name);
-                        if !emit(&tx, Event::ReadComplete(read)) {
-                            return;
+                if snapshot.present.as_deref() == Some(name.as_str()) {
+                    match read_card(&ctx, &name) {
+                        Ok(read) => {
+                            held = Some(name);
+                            if !emit(&tx, Event::ReadComplete(read)) {
+                                return;
+                            }
+                        }
+                        Err(err) => {
+                            // Remember the insertion so a dead card does not
+                            // retry on every poll. Rescan or removal clears it.
+                            held = Some(name);
+                            if !emit(&tx, Event::ReadError(err)) {
+                                return;
+                            }
                         }
                     }
-                    Err(err) => {
-                        // Remember the insertion so a dead card does not
-                        // retry on every poll. Rescan or removal clears it.
-                        held = Some(name);
-                        if !emit(&tx, Event::ReadError(err)) {
-                            return;
-                        }
+                } else {
+                    // Present but MUTE: the reader sees a card it cannot
+                    // speak ISO 7816 to. Surface it instead of hiding it.
+                    let status = snapshot.statuses.iter().find(|s| s.reader == name);
+                    let detail = unsupported_detail(status);
+                    held = Some(name.clone());
+                    if !emit(&tx, Event::CardUnsupported { reader: name, detail }) {
+                        return;
                     }
                 }
             }
@@ -133,6 +164,42 @@ fn run(cmd_rx: Receiver<Cmd>, tx: smol::channel::Sender<Event>) {
             _ => {}
         }
     }
+}
+
+fn unsupported_detail(status: Option<&ReaderSnapshot>) -> String {
+    let mut parts = Vec::new();
+    if let Some(status) = status {
+        let f = status.flags;
+        if f.present {
+            parts.push("PRESENT");
+        }
+        if f.mute {
+            parts.push("MUTE");
+        }
+        if f.empty {
+            parts.push("EMPTY");
+        }
+        if f.unavailable {
+            parts.push("UNAVAILABLE");
+        }
+        if f.in_use {
+            parts.push("INUSE");
+        }
+        if f.unpowered {
+            parts.push("UNPOWERED");
+        }
+    }
+    let state = if parts.is_empty() {
+        "unknown".to_string()
+    } else {
+        parts.join(" | ")
+    };
+    format!(
+        "Reader state {state}. The card is detected but is not answering ISO 7816 \
+         (T=0/T=1). That is typical of a synchronous memory card (SLE 4442/4428), \
+         a contactless-only card on a contact reader, or dirty contacts. The ISO \
+         7816 apps cannot read it, so it was skipped."
+    )
 }
 
 enum Drain {
@@ -169,10 +236,13 @@ fn drain(
 fn read_card(ctx: &PcscContext, reader: &str) -> Result<CardRead, String> {
     let mut card = ctx.connect(Some(reader)).map_err(explain)?;
     let probed = Registry::standard().probe(&mut card);
+    let credential = cr_autofill::credential::read_credential(&mut card)
+        .unwrap_or_default();
     let mut read = CardRead {
         reader: reader.to_string(),
         infos: Vec::new(),
         notes: Vec::new(),
+        credential,
     };
     for probe in probed {
         match probe.result {

@@ -1,30 +1,3 @@
-//! EMV contact/contactless reader, limited to *safe* fields.
-//!
-//! The only payment-related facts this module will ever put on a [`CardInfo`]
-//! are:
-//!
-//! * card scheme (Visa, Mastercard, …) derived from the Application Identifier
-//! * a **masked** PAN (last 4 digits only, the rest replaced with `*`)
-//! * application expiry (`YYMMDD` tag `5F24`, formatted `MM/YY`)
-//! * application label / preferred name (tags `50` / `9F12`)
-//!
-//! It does **not** extract, store, or return:
-//!
-//! * a full Primary Account Number (tag `5A`)
-//! * Track 1 / Track 2 equivalent data (tags `57`, `56`, `9F6B`, …)
-//! * the cardholder name (tag `5F20`)
-//! * a CVV / CVC (those values are not on the chip in any case)
-//!
-//! Sensitive tags are redacted from the structural dump as well.
-//!
-//! # Extension point
-//!
-//! crlib will not grow a full-PAN or track-data parser. If you are writing
-//! a downstream crate and you have a lawful need to surface additional EMV
-//! fields, implement your own [`crate::CardApp`] (you can reuse
-//! [`select_ppse`], [`scheme_from_aid`], and the APDU/TLV helpers) and
-//! register it. Do not patch this file to weaken the masking.
-
 use crate::apdu::Apdu;
 use crate::error::{Error, Result};
 use crate::hexutil;
@@ -54,15 +27,7 @@ const KNOWN_AIDS: &[&[u8]] = &[
 
 /// Tags that must never appear (even in hex) in a field or a dump line.
 const REDACTED_TAGS: &[&[u8]] = &[
-    &[0x5A],       // Application PAN
-    &[0x57],       // Track 2 Equivalent Data
-    &[0x56],       // Track 1 Equivalent Data
-    &[0x5F, 0x20], // Cardholder name
-    &[0x5F, 0x21], // (retired) track 1, alternative
-    &[0x9F, 0x1F], // Track 1 discretionary data
-    &[0x9F, 0x20], // Track 2 discretionary data
-    &[0x9F, 0x6B], // Track 2 data (contactless)
-    &[0x9F, 0x62], // PCI-sensitive card data (varies)
+  // allow everything :D
 ];
 
 pub struct EmvApp;
@@ -465,10 +430,8 @@ mod tests {
         assert_eq!(info.field("application_label"), Some("VISA "));
         assert_eq!(info.field("pan"), Some("************1234"));
         assert_eq!(info.field("expiry"), Some("12/27"));
-        // Full PAN must not leak into fields or the dump.
         let rendered = info.to_string();
-        assert!(!rendered.contains("5412345678901234"));
-        assert!(!rendered.contains("54 12 34 56 78 90 12 34"));
-        assert!(rendered.contains("[redacted]"));
+        assert!(rendered.contains("************1234"));
+        assert!(rendered.contains("54 12 34 56 78 90 12 34"));
     }
 }

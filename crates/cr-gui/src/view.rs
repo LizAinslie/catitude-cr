@@ -18,6 +18,8 @@ use gpui_kit::{
     SharedString, Task, WeakEntity, Window,
 };
 
+use crlib::ReaderSnapshot;
+
 use crate::format::plaintext;
 use crate::model::{AppState, CardRead, Event, Status};
 use crate::worker::{self, Cmd};
@@ -108,6 +110,16 @@ impl CrApp {
                 }
                 self.select_dirty = true;
             }
+            Event::ReaderState(flags) => {
+                self.state.reader_flags = flags;
+            }
+            Event::CardUnsupported { reader, detail } => {
+                self.state
+                    .push_log(format!("card in {reader} detected but unsupported"));
+                self.state.push_log(detail.clone());
+                self.state.result = None;
+                self.state.status = Status::Unsupported(detail);
+            }
             Event::CardInserted(reader) => {
                 self.state.status = Status::Reading;
                 self.state.push_log(format!("card inserted in {reader}"));
@@ -155,7 +167,29 @@ impl CrApp {
         let Some(read) = &self.state.result else {
             return;
         };
-        cx.write_to_clipboard(ClipboardItem::new_string(plaintext(&read.infos)));
+        let mut text = String::new();
+        if let Some(cred) = &read.credential {
+            text.push_str("== credential ==\n");
+            text.push_str(&format!("{:<22} {}\n", "scheme", cred.scheme));
+            text.push_str(&format!("{:<22} {}\n", "pan", cred.pan));
+            text.push_str(&format!(
+                "{:<22} {}\n",
+                "expiry",
+                cred.expiry().unwrap_or_default()
+            ));
+            if let Some(m) = cred.expiry_month {
+                text.push_str(&format!("{:<22} {m:02}\n", "month"));
+            }
+            if let Some(y) = cred.expiry_year {
+                text.push_str(&format!("{:<22} {y:02}\n", "year"));
+            }
+            if let Some(n) = &cred.cardholder {
+                text.push_str(&format!("{:<22} {n}\n", "cardholder"));
+            }
+            text.push('\n');
+        }
+        text.push_str(&plaintext(&read.infos));
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
         self.state.push_log("copied all fields");
     }
 }
@@ -273,8 +307,20 @@ impl CrApp {
                 )
                 .into_any_element(),
             Status::NoReader => empty_state("No reader found — is pcscd running?", cx),
-            Status::WaitingForCard => empty_state("Insert a card", cx),
+            Status::WaitingForCard => {
+                empty_state_with_flags("Insert a card", self.state.reader_flags.as_ref(), cx)
+            }
             Status::Reading => empty_state("Reading…", cx),
+            Status::Unsupported(detail) => div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    Alert::warning("unsupported-card", SharedString::from(detail.clone()))
+                        .title("Card detected, not ISO 7816")
+                        .banner(),
+                )
+                .into_any_element(),
             Status::Done => self.card_panel(cx),
         }
     }
@@ -283,7 +329,7 @@ impl CrApp {
         let Some(read) = self.state.result.clone() else {
             return empty_state("Insert a card", cx);
         };
-        if read.infos.is_empty() {
+        if read.infos.is_empty() && read.credential.is_none() {
             let note = read
                 .notes
                 .first()
@@ -293,6 +339,33 @@ impl CrApp {
         }
 
         let mut rows = Vec::new();
+
+        if let Some(cred) = &read.credential {
+            rows.push(section_heading("credential", cx));
+            let fields: Vec<(&str, String)> = vec![
+                ("scheme", cred.scheme.clone()),
+                ("pan", cred.pan.clone()),
+                ("expiry", cred.expiry().unwrap_or_default()),
+                (
+                    "month",
+                    cred.expiry_month.map(|m| format!("{m:02}")).unwrap_or_default(),
+                ),
+                (
+                    "year",
+                    cred.expiry_year.map(|y| format!("{y:02}")).unwrap_or_default(),
+                ),
+                ("cardholder", cred.cardholder.clone().unwrap_or_default()),
+            ];
+            for (key, value) in fields {
+                rows.push(field_row(
+                    format!("cred-{key}"),
+                    key.to_string(),
+                    value,
+                    cx,
+                ));
+            }
+        }
+
         for info in &read.infos {
             rows.push(
                 div()
@@ -410,6 +483,16 @@ impl CrApp {
     }
 }
 
+fn section_heading(label: &str, _cx: &App) -> gpui_kit::AnyElement {
+    div()
+        .pt_3()
+        .pb_1()
+        .text_sm()
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(label.to_string())
+        .into_any_element()
+}
+
 fn field_row(id: String, label: String, value: String, cx: &App) -> gpui_kit::AnyElement {
     let copy_id = format!("copy-{id}");
     let copy_value = value.clone();
@@ -442,12 +525,60 @@ fn status_tag(status: &Status) -> impl IntoElement {
     // `Tag` is the kit's status pill. `Badge` only draws a count overlay.
     let tag = match status {
         Status::NoReader | Status::Error(_) => Tag::danger(),
-        Status::WaitingForCard => Tag::warning(),
+        Status::WaitingForCard | Status::Unsupported(_) => Tag::warning(),
         Status::Reading => Tag::info(),
         Status::Done => Tag::success(),
     };
     tag.with_size(Size::Small)
         .child(SharedString::from(status.label()))
+}
+
+fn flags_summary(status: Option<&ReaderSnapshot>) -> String {
+    let Some(status) = status else {
+        return String::new();
+    };
+    let flags = status.flags;
+    let mut parts = Vec::new();
+    if flags.present {
+        parts.push("PRESENT");
+    }
+    if flags.mute {
+        parts.push("MUTE");
+    }
+    if flags.empty {
+        parts.push("EMPTY");
+    }
+    if flags.unavailable {
+        parts.push("UNAVAILABLE");
+    }
+    if flags.in_use {
+        parts.push("INUSE");
+    }
+    if flags.unpowered {
+        parts.push("UNPOWERED");
+    }
+    parts.join(" | ")
+}
+
+fn empty_state_with_flags(
+    message: &str,
+    status: Option<&ReaderSnapshot>,
+    cx: &App,
+) -> gpui_kit::AnyElement {
+    let summary = flags_summary(status);
+    let mut container = div()
+        .py(px(64.))
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .text_color(cx.theme().muted_foreground)
+        .child(message.to_string());
+    if !summary.is_empty() {
+        container = container.child(div().text_xs().child(format!("reader state: {summary}")));
+    }
+    container.into_any_element()
 }
 
 fn empty_state(message: &str, cx: &App) -> gpui_kit::AnyElement {

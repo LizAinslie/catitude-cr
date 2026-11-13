@@ -29,7 +29,10 @@ pub use apps::{scheme_from_aid, select_ppse, AtrApp, CalypsoApp, DesfireApp, Emv
 pub use atr::{Atr, Convention};
 pub use error::{Error, Result};
 pub use info::{view_rows, CardInfo, DumpLine, Field, RowKind, ViewRow};
-pub use pcsc_transport::{CardSnapshot, CardWatch, PcscCard, PcscContext};
+pub use pcsc_transport::{
+    CardSnapshot, CardSnapshotDetailed, CardWatch, PcscCard, PcscContext, ReaderSnapshot,
+    ReaderStateFlags,
+};
 pub use registry::{CardApp, ProbeResult, Registry};
 pub use tlv::Tlv;
 pub use transport::{transceive, transceive_ok, ScriptedTransport, Transport};

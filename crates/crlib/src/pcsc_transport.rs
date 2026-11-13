@@ -188,27 +188,52 @@ pub struct CardSnapshot {
     pub present: Option<String>,
 }
 
+/// Raw PC/SC state for one watched reader.
+///
+/// [`card_is_live`] hides a `PRESENT | MUTE` card; these flags do not, so a
+/// reader that detects a card it cannot talk ISO 7816 to still shows up.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReaderStateFlags {
+    pub present: bool,
+    pub mute: bool,
+    pub empty: bool,
+    pub unavailable: bool,
+    pub in_use: bool,
+    pub unpowered: bool,
+    pub changed: bool,
+}
+
+/// One watched reader and its current state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReaderSnapshot {
+    pub reader: String,
+    pub flags: ReaderStateFlags,
+}
+
+/// [`PcscContext::poll_cards`] plus the raw per-reader flags.
+///
+/// `present` is still the responsive (ISO 7816) card. `statuses` also exposes
+/// a reader reporting `PRESENT | MUTE`, which `present` deliberately omits.
+pub struct CardSnapshotDetailed {
+    pub readers: Vec<String>,
+    pub statuses: Vec<ReaderSnapshot>,
+    pub present: Option<String>,
+}
+
 impl PcscContext {
     /// Start a presence watch. Pair it with [`Self::poll_cards`].
     pub fn card_watch(&self) -> CardWatch {
         CardWatch::new()
     }
 
-    /// Block until a watched reader's card presence changes, or `timeout` elapses.
-    ///
-    /// `reader` limits the watch to one reader (exact name, or a substring,
-    /// same rule as [`Self::connect`]). `None` watches every reader and
-    /// reports the first one with a live card.
-    ///
-    /// When nothing is plugged in, this still waits out `timeout` so a caller
-    /// can poll a command channel at that cadence without spinning.
-    /// The reader list is refreshed on every call.
-    pub fn poll_cards(
+    /// Like [`Self::poll_cards`], but returns each watched reader's raw
+    /// [`ReaderStateFlags`] alongside the live-card answer.
+    pub fn poll_cards_detailed(
         &self,
         watch: &mut CardWatch,
         reader: Option<&str>,
         timeout: Duration,
-    ) -> Result<CardSnapshot> {
+    ) -> Result<CardSnapshotDetailed> {
         let readers = match self.readers() {
             Ok(readers) => readers,
             Err(Error::NoReaders) => Vec::new(),
@@ -230,8 +255,9 @@ impl PcscContext {
 
         if watch.states.is_empty() {
             std::thread::sleep(timeout);
-            return Ok(CardSnapshot {
+            return Ok(CardSnapshotDetailed {
                 readers,
+                statuses: Vec::new(),
                 present: None,
             });
         }
@@ -244,6 +270,18 @@ impl PcscContext {
             Err(pcsc::Error::Timeout) => false,
             Err(err) => return Err(err.into()),
         };
+
+        let statuses = watch
+            .states
+            .iter()
+            .filter_map(|state| {
+                let name = c_to_string(state.name()).ok()?;
+                Some(ReaderSnapshot {
+                    reader: name,
+                    flags: flags_of(state.event_state()),
+                })
+            })
+            .collect::<Vec<_>>();
 
         let present = watch.states.iter().find_map(|state| {
             if !card_is_live(state.event_state()) {
@@ -258,7 +296,45 @@ impl PcscContext {
             }
         }
 
-        Ok(CardSnapshot { readers, present })
+        Ok(CardSnapshotDetailed {
+            readers,
+            statuses,
+            present,
+        })
+    }
+
+    /// Block until a watched reader's card presence changes, or `timeout` elapses.
+    ///
+    /// `reader` limits the watch to one reader (exact name, or a substring,
+    /// same rule as [`Self::connect`]). `None` watches every reader and
+    /// reports the first one with a live card.
+    ///
+    /// When nothing is plugged in, this still waits out `timeout` so a caller
+    /// can poll a command channel at that cadence without spinning.
+    /// The reader list is refreshed on every call.
+    pub fn poll_cards(
+        &self,
+        watch: &mut CardWatch,
+        reader: Option<&str>,
+        timeout: Duration,
+    ) -> Result<CardSnapshot> {
+        let detailed = self.poll_cards_detailed(watch, reader, timeout)?;
+        Ok(CardSnapshot {
+            readers: detailed.readers,
+            present: detailed.present,
+        })
+    }
+}
+
+fn flags_of(state: State) -> ReaderStateFlags {
+    ReaderStateFlags {
+        present: state.contains(State::PRESENT),
+        mute: state.contains(State::MUTE),
+        empty: state.contains(State::EMPTY),
+        unavailable: state.contains(State::UNAVAILABLE),
+        in_use: state.contains(State::INUSE),
+        unpowered: state.contains(State::UNPOWERED),
+        changed: state.contains(State::CHANGED),
     }
 }
 

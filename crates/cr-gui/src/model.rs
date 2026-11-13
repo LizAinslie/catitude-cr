@@ -1,6 +1,7 @@
 //! UI state. The worker owns PC/SC; this module is plain data the view renders.
 
-use crlib::CardInfo;
+use cr_autofill::credential::Credential;
+use crlib::{CardInfo, ReaderSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
@@ -8,6 +9,7 @@ pub enum Status {
     WaitingForCard,
     Reading,
     Done,
+    Unsupported(String),
     Error(String),
 }
 
@@ -18,6 +20,7 @@ impl Status {
             Status::WaitingForCard => "Waiting for card",
             Status::Reading => "Reading",
             Status::Done => "Ready",
+            Status::Unsupported(_) => "Unsupported card",
             Status::Error(_) => "Error",
         }
     }
@@ -29,14 +32,17 @@ pub struct CardRead {
     pub reader: String,
     pub infos: Vec<CardInfo>,
     pub notes: Vec<String>,
+    pub credential: Option<Credential>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Event {
     ReadersChanged(Vec<String>),
+    ReaderState(Option<ReaderSnapshot>),
     CardInserted(String),
     CardRemoved,
     ReadComplete(CardRead),
+    CardUnsupported { reader: String, detail: String },
     ReadError(String),
 }
 
@@ -46,6 +52,7 @@ pub struct AppState {
     pub selected: Option<usize>,
     pub status: Status,
     pub result: Option<CardRead>,
+    pub reader_flags: Option<ReaderSnapshot>,
     pub log: Vec<String>,
 }
 
@@ -56,6 +63,7 @@ impl AppState {
             selected: None,
             status: Status::WaitingForCard,
             result: None,
+            reader_flags: None,
             log: vec!["looking for readers".into()],
         }
     }
