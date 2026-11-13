@@ -35,10 +35,24 @@
         let pkgs = pkgsFor system; in {
           default = pkgs.mkShell {
             # pcscd must be running on the host; pcsclite here is the build+link lib.
+            # The extra libraries are for a local `cargo build -p cr-gui` only.
+            # `nix build` does not compile the GUI.
             nativeBuildInputs = [ pkgs.pkg-config pkgs.rust-bin.stable.latest.default ];
-            buildInputs = [ pkgs.pcsclite ];
+            buildInputs = with pkgs; [
+              pcsclite
+              vulkan-loader
+              libxkbcommon
+              wayland
+              xorg.libX11
+              xorg.libXcursor
+              xorg.libXi
+              xorg.libXrandr
+              fontconfig
+              openssl
+            ];
             shellHook = ''
               echo "catitude-cr dev shell — cargo build, then ./target/debug/cr --wait"
+              echo "GUI (not packaged): cargo build -p cr-gui && ./target/debug/crgui"
             '';
           };
         });

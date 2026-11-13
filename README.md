@@ -10,8 +10,9 @@ deliberately limited set of EMV fields. Downstream crates add their own
 apps (transit systems, PIV/CAC, whatever you actually need) by implementing
 the same trait.
 
-This workspace is a starting point for a GPUI inspector. The crate that
-definitely builds here is `catitude-cr-cli`; see [Dropping this into GPUI](#dropping-this-into-gpui).
+The library crate is `crlib`. The headless CLI is the `cr` binary. The
+desktop inspector is a separate binary, `crgui`, in `crates/cr-gui`
+([Desktop inspector](#desktop-inspector)).
 
 ## Safe-fields policy
 
@@ -45,22 +46,24 @@ are reusable. Do not patch `apps/emv.rs` to weaken the masking.
 
 ```
 catitude-cr/
-  crates/catitude-cr/        library
+  crates/crlib/          library (`crlib`)
     src/apdu.rs          command / response APDUs, 61xx & 6Cxx handling
     src/tlv.rs           BER-TLV
     src/atr.rs           ATR parse + compact historical bytes
     src/transport.rs     Transport trait, transceive, ScriptedTransport
-    src/pcsc_transport.rs  pcsc-crate backend
+    src/pcsc_transport.rs  pcsc-crate backend, including poll_cards
     src/registry.rs      CardApp trait + Registry
     src/info.rs          CardInfo, view_rows() for a UI list
     src/apps/            built-in parsers
-  crates/catitude-cr-cli/    `catitude-cr` binary
+  crates/cr/             `cr` binary
+  crates/cr-gui/         `crgui` binary (gpui-ce). Not in the Nix package.
   shell.nix              rustc, cargo, pkg-config, pcsclite
 ```
 
 ## Requirements
 
-- Rust 1.85 or later (edition 2021)
+- Rust 1.85 or later for `crlib` and `cr` (edition 2021)
+- Rust 1.95 or later for `crgui` (`gpui-ce` 0.3)
 - `pcscd` running (on NixOS: `services.pcscd.enable = true;`)
 - `libpcsclite` and `pkg-config` visible at build time
 
@@ -129,37 +132,26 @@ in your own type if you want a second pass over the card after `try_read`.
 The standard registry, in order, is: ATR identifier, EMV (safe fields),
 DESFire, Calypso, ISO 7816 structure.
 
-## Dropping this into GPUI
+## Desktop inspector
 
-GPUI (and a Zed-style app) was the intended front-end, but pulling `gpui`
-into this workspace would drag in a large GPU / windowing stack that does
-not build headlessly here. The CLI is the reference front-end. A view is
-one loop over `catitude-cr::view_rows`:
+`crgui` is a read-only window on the same registry the CLI uses. It lists
+PC/SC readers, waits for a card, and renders the fields the registry
+returns. It does not write to the card, and it does not unmask anything:
+EMV still shows scheme, masked PAN, expiry, and application label.
 
-```rust
-use catitude-cr::{view_rows, CardInfo, RowKind};
+PC/SC runs on a worker thread (`PcscContext::poll_cards`). The window only
+receives reader and card events. Copy puts the same plain text the CLI
+prints on the clipboard.
 
-fn card_rows(infos: &[CardInfo]) -> Vec<(String, String, RowKind)> {
-    view_rows(infos)
-        .into_iter()
-        .map(|r| (r.label, r.value, r.kind))
-        .collect()
-}
-
-// in a gpui element:
-// for (label, value, kind) in card_rows(&infos) {
-//     match kind {
-//         RowKind::Heading => heading(label),
-//         RowKind::Field   => row(label, value),
-//         RowKind::Dump    => muted_row(label, value),
-//     }
-// }
+```
+cargo build -p cr-gui
+./target/debug/crgui
 ```
 
-The probe itself is the same as the CLI: `PcscContext::establish`,
-`wait_for_card` / `connect`, `Registry::standard().read_all(&mut card)`.
-Put that on a background thread and publish `Vec<CardInfo>` into your
-GPUI model.
+`gpui-ce` is pinned from crates.io (`gpui_ce_kit` 0.3.0). The Nix package
+builds only `cr` and `crlib`; it does not link the GUI. On Linux, the flake
+dev shell includes the extra libraries a local `cargo build -p cr-gui`
+needs. macOS uses Metal and the system PC/SC framework.
 
 ## Library sketch
 

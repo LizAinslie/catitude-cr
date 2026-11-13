@@ -1,0 +1,18 @@
+[package]
+name = "cr-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Read-only desktop inspector for crlib (gpui-ce)"
+repository.workspace = true
+
+[[bin]]
+name = "crgui"
+path = "src/main.rs"
+
+[dependencies]
+crlib = { workspace = true }
+# gpui-ce plus the styled component kit (select, list, button, tag).
+# Pinned so the GUI does not follow a Zed git revision.
+gpui_ce_kit = "0.3.0"
+smol = "2"

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["crates/crlib", "crates/cr"]
-default-members = ["crates/crlib", "crates/cr"]
+members = ["crates/crlib", "crates/cr", "crates/cr-gui"]
+default-members = ["crates/crlib", "crates/cr", "crates/cr-gui"]
 
 [workspace.package]
 version = "0.1.0"

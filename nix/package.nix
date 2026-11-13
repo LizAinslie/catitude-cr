@@ -12,6 +12,22 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [ pcsclite ];
 
+  # `crgui` links gpui-ce. This package stays the headless `cr` binary.
+  # Build the GUI from a dev shell: `cargo build -p cr-gui`.
+  cargoBuildFlags = [
+    "-p"
+    "cr"
+    "-p"
+    "crlib"
+  ];
+  cargoCheckFlags = [
+    "-p"
+    "cr"
+    "-p"
+    "crlib"
+  ];
+  cargoTestFlags = [ "-p" "crlib" ];
+
   # crlib's tests use a scripted in-memory Transport, no reader needed.
   doCheck = true;
 
